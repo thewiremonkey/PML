@@ -1,0 +1,286 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Alyssa Goldberg"
+date: "January 12, 2016"
+output:
+  html_document: default
+
+---
+#Introduction
+Using the training and test datasets provided by [http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises], we will attempt to construct the best fit model that will predict whether or not an specific exercise was performed correctly (classe==A) or in one of four incorrect manners (classe==B:E). *see Appendix for full description of the classes*.
+
+In addition to finding the most accurate model, we'll also keep track of processing time for each model because the most accurate model may not be the "best" model for real-life large data sets.
+
+
+```{r load, echo=FALSE, warning=FALSE, message=FALSE}
+ptm<-proc.time()
+
+library(plyr)
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(knitr)
+
+set.seed(3383)
+load.time<-proc.time()-ptm
+```
+```{r getURLs, echo=FALSE}
+# ptm<-proc.time()
+# trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+# testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+# getURLS.time<-proc.time()-ptm
+```
+```{r readdata, echo=FALSE}
+ptm<-proc.time()
+# training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+# write.csv(training, "rawtraining.csv", row.names=FALSE )
+# 
+# testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+# write.csv(testing, "rawtesting.csv", row.names=FALSE)
+training<-read.csv("rawtraining.csv")
+testing<-read.csv("rawtesting.csv")
+rawtrainnames<-names(training)
+rawtestnames<-names(testing)
+
+readdata.time<-proc.time()-ptm
+```
+
+#Data Cleanup and Pre-processing  
+We are interested in the accelerometer data as it relates to whether an exercise was performed correctly. Visual inspection of the data shows us that we can remove columns that contain 1 through 7, which contain identifying data, time stamp and other data irrelevant to our question.   
+
+```{r remove_first_seven, echo=FALSE}
+training<-training[, -c(1:7)]
+testing<-testing[, -c(1:7)]
+```
+Many columns contain no data.  If more than 80% of the data in a column is NA, eliminate that data from the column set. 
+```{r remove_na, echo=FALSE}
+nas<-colSums(is.na(training))>(nrow(training)*.8)
+nacols<-names(training[, !nas])
+training<-training[, nacols]
+
+nas<-colSums(is.na(testing))>(nrow(testing)* 0.8)
+nacols<-names(testing[, !nas])
+testing<-testing[, nacols]
+dim(training)
+```
+
+Next,remove columns with near zero variance or zero variance
+```{r nzv, echo=FALSE}
+ptm<-proc.time()
+nzv<-nearZeroVar(training, saveMetrics=TRUE)
+nzvNames<-row.names(nzv)
+training<-training[nzv$nzv==FALSE, nzvNames]
+
+nzv<-nearZeroVar(testing, saveMetrics=TRUE)
+nzvNames<-row.names(nzv)
+testing<-testing[nzv$nzv==FALSE, nzvNames]
+nzvtime<-proc.time()-ptm
+```
+There are now `r dim(training)[2]` columns left, which is identical to what it was previously, so we can leave out the costly nearZeroVar()function in the future. What is left contains data that can be used to classify whether an exercise was performed correctly, class A or incorrectly, classes B through E.
+
+#Modeling and Training Data  
+##Subset Training Data
+
+The dataset is still very large, containing `r dim(training)[1]` objects and `r dim(training)[2] variables.  To speed up initial model testing, we'll create three subsets of the training data, then partition each of those subsets.  Once we model and predict on the smaller data sets we can apply the use the full data set with the best model (most accurate ~ processing time).
+
+```{r subset, echo=FALSE}
+inTrain<-createDataPartition(y=training$classe, p=.7, list=FALSE)
+strain<-training[inTrain,]
+stest<-training[-inTrain,]
+
+inSet1<-createDataPartition(y =training$classe, p=.33, list=FALSE) #break off a third of the data to create the first small training set
+small1<-training[inSet1, ]
+remainder1<-training[-inSet1, ]
+
+inTrain1<-createDataPartition(y=small1$classe, p=.7, list=FALSE) #create first small training/testing set
+strain1<-small1[inTrain1,]
+stest1<-small1[-inTrain1,]
+
+inSet2<-createDataPartition(y=remainder1$classe, p = .5, list=FALSE) #break off half of the remaining data to create second small training set
+small2<-remainder1[inSet2, ]
+remainder2<-remainder1[-inSet2,]
+
+inTrain2<-createDataPartition(y=small2$classe, p=.7, list=FALSE) #create second small training/testing set
+strain2<-small2[inTrain2,]
+stest2<-small2[-inTrain2,]
+
+inTrain3<-createDataPartition(y=remainder2$classe, p=.7, list=FALSE) #create third small training/testing set
+strain3<-remainder2[inTrain3,]
+stest3<-remainder2[-inTrain3, ]
+
+rm(remainder1)
+rm(remainder2)
+rm(small1)
+rm(small2)
+# rm(training)
+```
+
+As this is a classification problem, we'll be using a variety of "tree" models, including: **rpart**, **randomForest** and **gbm**.
+
+##Model 1, rpart()
+Create first model fit using recursive partitioning and regression trees, a.k.a **rpart** and predict on that model. **rpart** is great for creating a decision tree plot (see Appendix fig 1) and is more scalable, but tends to have lower accuracy compared to other functions. 
+```{r modelfit1, echo=FALSE}
+ptm<-proc.time()
+
+set.seed(3383)
+model.fit1 <- rpart(classe ~ ., data=strain1, method="class")
+mfit1time<-proc.time()-ptm
+```
+
+```{r pred1, echo=FALSE}
+predict1<-predict(model.fit1, stest1, type="class")
+cmp1<-confusionMatrix(predict1, stest1$classe)
+t1<-cmp1$table
+```
+Below is the accuracy and confusion matrix:
+```{r, modelfit1outcome, echo=FALSE, warning=FALSE}
+cmp1$overall["Accuracy"]
+kable(t1)
+```
+
+##Model 2, randomForest()
+`randomForest` differs from rpart in that it creates several subsets of trees, a forest rather than a single tree, and then averages them together to find the best model.  It can be less scalable re: CPU, but if processing time is not an issue, generally produces the best results. 
+
+
+
+```{r trainall}
+ptm<-proc.time()
+set.seed(3383)
+
+
+model.fit<-randomForest(classe ~ ., data=strain, importance = TRUE, allowParallel=TRUE) #being sneaky here and producing our final training model after discovering that this is the best model fit.
+trainall.time<-proc.time()-ptm
+
+```
+
+```{r model.fit2, echo=FALSE}
+ptm<-proc.time()
+
+set.seed(3383)
+
+model.fit2<-randomForest(classe ~ ., data=strain1, importance = TRUE)
+mfit2time<-proc.time()-ptm
+
+```
+
+predict on the second model
+```{r pred2, echo=FALSE}
+predict2<-predict(model.fit2, stest1)
+cmp2<-confusionMatrix(predict2, stest1$classe)
+t2<-cmp2$table
+cmp2$overall
+```
+
+```{r cmp2_table, results='asis'}
+cmp2$overall["Accuracy"]
+kable(t2)
+```
+
+##Model 3, train() method=gbm
+`randomForest` gave us a pretty good Accuracy, we'll see if we can do better with boosting using the method **gbm* (for classification boosting) in the `train` function.
+
+```{r modelfit3, echo=FALSE}
+ptm<-proc.time()
+library(gbm)
+library(caret)
+fitControl<-trainControl(method="repeatedcv",
+                         number = 5,
+                         repeats = 1,
+                         verboseIter = FALSE)
+
+set.seed(33833)
+model.fit3<-train(classe ~., data=strain1,
+              method="gbm",
+              trControl=fitControl,
+              verbose=FALSE)
+model.fit3
+mfit3time<-proc.time()-ptm
+```
+
+
+predict on third model
+```{r pred3, echo=FALSE}
+predict3<-predict(model.fit3, newdata = stest1)
+cmp3<-confusionMatrix(predict3, stest1$classe)
+t3<-cmp3$table
+
+```
+```{r t3_table, echo=FALSE, results='asis'}
+cmp3$overall["Accuracy"]
+kable(t3)
+```
+
+##Model 4, ensemble
+combine predictors
+```{r combine}
+ptm<-proc.time()
+set.seed(3383)
+predDF<-data.frame(predict1, predict2, predict3, classe=stest1$classe)
+model.fit4<-train(classe ~., method="gam", data=predDF)
+predict4<-predict(model.fit4, predDF)
+cmp4<-confusionMatrix(predict4, predDF$classe)
+
+mfit4time<-proc.time()-ptm
+```
+```{r t4_table, echo=FALSE, results='asis'}
+t4<-cmp4$table
+cmp4$overall["Accuracy"]
+```
+
+```{r timers, echo=FALSE}
+
+times<-as.data.frame(rbind("rpart"=mfit1time[1:3], "randomForest" = mfit2time[1:3], "gbm"=mfit3time[1:3], "combined"=mfit4time[1:3]))
+
+```
+##Compare all 4 Models for Accuracy and Compare Processing Times
+```{r comparison, echo=FALSE, warning=FALSE, message=FALSE}
+modeltable<-as.data.frame(rbind("rpart" = cmp1$overall["Accuracy"], "random forest"=cmp2$overall["Accuracy"], "gradient boosting"=cmp3$overall["Accuracy"], "combined"=cmp4$overall["Accuracy"]))
+
+modeltable<-cbind(model = row.names(modeltable), modeltable, times)
+
+```
+
+```{r tableComparison, echo=FALSE, results='asis'}
+kable(arrange(modeltable, Accuracy, desc(Accuracy)))
+```
+
+Model 2, the random forest model has the highest accuracy.  Applied to our large training set vs. testing set we get the following predictions:
+```{r echo=FALSE}
+finalPrediction<-predict(model.fit, newdata=testing)
+```
+
+
+```{r}
+print(finalPrediction[1:20])
+```
+
+---  
+
+#Appendix
+fig 1. Tree Plot
+```{r}
+fancyRpartPlot(model.fit1)
+```
+
+```{r combined_table, echo=FALSE}
+
+plot(t1)
+plot(t2)
+plot(t3)
+plot(t4)
+```
+
+```{r varmodel, echo=FALSE}
+varImp(model.fit2)
+varUsed(model.fit2)
+model.fit2
+
+```
+
+##Source:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
