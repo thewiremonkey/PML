@@ -1,4 +1,6 @@
 # PML
 Assignment for Coursera Practical Machine Learning
 
-RMD and PDF files for Peer Assesment
+The browser-friendly version of machlearn.html can be found at:
+
+http://thewiremonkey.github.io/
