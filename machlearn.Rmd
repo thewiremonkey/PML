@@ -231,7 +231,11 @@ modeltable<-as.data.frame(rbind("rpart" = cmp1$overall["Accuracy"], "random fore
 modeltable<-cbind(model = row.names(modeltable), modeltable, times)
 
 ```
-Model 2, Random Forest, has a slightly higher accuracy at `r cmp2$overall["Accuracy"] ` than Gradient Boosting at `r cmp3$overall["Accuracy"] `, but the former's computation time is `r 100*mfit2time/mfit3time`% of the latter so we'll use this model.
+Model 2, Random Forest, has a slightly higher accuracy at `r cmp2$overall["Accuracy"] ` than Gradient Boosting at `r cmp3$overall["Accuracy"] `, but the former's computation time is `r 100*mfit2time[3]/mfit3time[3]`% of the latter so we'll use this model.
+
+The out of sample error rate should be about `r 1-cmp2$overall["Accuracy"]`
+
+
 ```{r tableComparison, echo=FALSE, results='asis'}
 kable(arrange(modeltable, Accuracy, desc(Accuracy)))
 ```
