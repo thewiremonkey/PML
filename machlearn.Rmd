@@ -1,7 +1,7 @@
 ---
 title: "Practical Machine Learning Assignment"
 author: "Alyssa Goldberg"
-date: "January 12, 2016"
+date: "January 29, 2016"
 output:
   html_document: default
 
@@ -23,22 +23,20 @@ library(rpart.plot)
 library(rattle)
 library(randomForest)
 library(knitr)
+library(MASS)
 
 set.seed(3383)
 load.time<-proc.time()-ptm
 ```
-```{r getURLs, echo=FALSE}
-# ptm<-proc.time()
-# trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
-# testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
-# getURLS.time<-proc.time()-ptm
-```
+
 ```{r readdata, echo=FALSE}
 ptm<-proc.time()
-# training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+# trainURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+# testURL<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+# training <- read.csv(url(trainURL), na.strings=c("NA","#DIV/0!",""))
 # write.csv(training, "rawtraining.csv", row.names=FALSE )
 # 
-# testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+# testing <- read.csv(url(testURL), na.strings=c("NA","#DIV/0!",""))
 # write.csv(testing, "rawtesting.csv", row.names=FALSE)
 training<-read.csv("rawtraining.csv")
 testing<-read.csv("rawtesting.csv")
@@ -152,8 +150,12 @@ set.seed(3383)
 
 
 model.fit<-randomForest(classe ~ ., data=strain, importance = TRUE, allowParallel=TRUE) #being sneaky here and producing our final training model after discovering that this is the best model fit.
-trainall.time<-proc.time()-ptm
 
+predict<-predict(model.fit, stest1)
+cmp2<-confusionMatrix(predict, stest1$classe)
+
+t<-cmp2$table
+trainall.time<-proc.time()-ptm
 ```
 
 ```{r model.fit2, echo=FALSE}
@@ -161,13 +163,14 @@ ptm<-proc.time()
 
 set.seed(3383)
 
-model.fit2<-randomForest(classe ~ ., data=strain1, importance = TRUE)
+model.fit2<-randomForest(classe ~ ., data=strain1, importance = TRUE,scale=TRUE)
 mfit2time<-proc.time()-ptm
 
 ```
 
 predict on the second model
 ```{r pred2, echo=FALSE}
+set.seed(33833)
 predict2<-predict(model.fit2, stest1)
 cmp2<-confusionMatrix(predict2, stest1$classe)
 t2<-cmp2$table
@@ -182,16 +185,17 @@ kable(t2)
 ##Model 3, train() method=gbm
 `randomForest` gave us a pretty good Accuracy, we'll see if we can do better with boosting using the method **gbm* (for classification boosting) in the `train` function.
 
-```{r modelfit3, echo=FALSE}
+```{r modelfit3, echo=FALSE, warning=FALSE, message=FALSE}
 ptm<-proc.time()
 library(gbm)
 library(caret)
+set.seed(3383)
 fitControl<-trainControl(method="repeatedcv",
                          number = 5,
                          repeats = 1,
                          verboseIter = FALSE)
 
-set.seed(33833)
+
 model.fit3<-train(classe ~., data=strain1,
               method="gbm",
               trControl=fitControl,
@@ -213,46 +217,32 @@ cmp3$overall["Accuracy"]
 kable(t3)
 ```
 
-##Model 4, ensemble
-combine predictors
-```{r combine}
-ptm<-proc.time()
-set.seed(3383)
-predDF<-data.frame(predict1, predict2, predict3, classe=stest1$classe)
-model.fit4<-train(classe ~., method="gam", data=predDF)
-predict4<-predict(model.fit4, predDF)
-cmp4<-confusionMatrix(predict4, predDF$classe)
 
-mfit4time<-proc.time()-ptm
-```
-```{r t4_table, echo=FALSE, results='asis'}
-t4<-cmp4$table
-cmp4$overall["Accuracy"]
-```
 
 ```{r timers, echo=FALSE}
 
-times<-as.data.frame(rbind("rpart"=mfit1time[1:3], "randomForest" = mfit2time[1:3], "gbm"=mfit3time[1:3], "combined"=mfit4time[1:3]))
+times<-as.data.frame(rbind("rpart"=mfit1time[1:3], "randomForest" = mfit2time[1:3], "gbm"=mfit3time[1:3]))
 
 ```
-##Compare all 4 Models for Accuracy and Compare Processing Times
+##Compare all 3 Models for Accuracy and Compare Processing Times
 ```{r comparison, echo=FALSE, warning=FALSE, message=FALSE}
-modeltable<-as.data.frame(rbind("rpart" = cmp1$overall["Accuracy"], "random forest"=cmp2$overall["Accuracy"], "gradient boosting"=cmp3$overall["Accuracy"], "combined"=cmp4$overall["Accuracy"]))
+modeltable<-as.data.frame(rbind("rpart" = cmp1$overall["Accuracy"], "random forest"=cmp2$overall["Accuracy"], "gradient boosting"=cmp3$overall["Accuracy"]))
 
 modeltable<-cbind(model = row.names(modeltable), modeltable, times)
 
 ```
-
+Model 2, Random Forest, has a slightly higher accuracy at `r cmp2$overall["Accuracy"] ` than Gradient Boosting at `r cmp3$overall["Accuracy"] `, but the former's computation time is `r 100*mfit2time/mfit3time`% of the latter so we'll use this model.
 ```{r tableComparison, echo=FALSE, results='asis'}
 kable(arrange(modeltable, Accuracy, desc(Accuracy)))
 ```
 
-Model 2, the random forest model has the highest accuracy.  Applied to our large training set vs. testing set we get the following predictions:
-```{r echo=FALSE}
+Applying Model 2 to our large training set vs. testing set we get the following predictions:
+```{r echo=FALSE, warning=F, message=F}
 finalPrediction<-predict(model.fit, newdata=testing)
+
 ```
 
-
+#Final Prediction for Quiz
 ```{r}
 print(finalPrediction[1:20])
 ```
@@ -260,23 +250,40 @@ print(finalPrediction[1:20])
 ---  
 
 #Appendix
-fig 1. Tree Plot
-```{r}
-fancyRpartPlot(model.fit1)
+fig 1. Recursive Partitioning (rpart)Tree Plot & Prediction Plot Model 1 
+```{r, echo=F, warning=F, message=F}
+par(mfrow=c(1,2))
+rpart.plot(model.fit1, main="")
+title(main="Recursive Partitioning: Prediction Tree", font.main=1, cex.main=0.5)
+plot(t1, main="")
+title(main="Recursive Partitioning: Prediction Plot",font.main=1, cex.main=0.5)
+
 ```
 
-```{r combined_table, echo=FALSE}
+fig 2. Random Forest (randomForest) Error Plot & Prediction Plot Model 2
+```{r, echo=F, warning=F, message=F}
+par(mfrow=c(1,2))
+plot(model.fit2, main="")
+title(main = "Random Forest: Error Rate vs Number of Trees", font.main=1, cex.main=0.5)
+plot(t2, main="")
+title(main="Random Forest: Prediction Plot", font.main=1, cex.main=0.5)
 
-plot(t1)
-plot(t2)
-plot(t3)
-plot(t4)
 ```
 
+fig 3. Random Forest (randomForest) Error Plot & Prediction Plot Model 2
+```{r, echo=F, warning=F, message=F}
+
+
+par(mfrow=c(1,1))
+plot(model.fit3, main="GBM: Accuracy vs. Boosting Iterations")
+plot(t3, main="Gradient Boosting Method: Prediction Plot")
+
+```
+
+
+fig 4. Model 2 Random Forest Variable Importance
 ```{r varmodel, echo=FALSE}
-varImp(model.fit2)
-varUsed(model.fit2)
-model.fit2
+varImpPlot(model.fit2, n.var = 12, main = "Top 12 Variables (Random Forest)")
 
 ```
 
